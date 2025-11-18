@@ -16,87 +16,162 @@ program
 const options = program.opts();
 
 const startTorrentDownload = (torrentPath: string, outputDir: string) => {
-  // Ensure the output directory exists
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  // Initialize TUI
-  const screen = blessed.screen();
+  const screen = blessed.screen({
+    smartCSR: true,
+    title: 'Something CLI - Next Level Torrenting',
+  });
+
   const grid = new contrib.grid({ rows: 12, cols: 12, screen: screen });
 
-  const infoBox = grid.set(0, 0, 6, 12, blessed.box, {
-    label: 'Torrent Info',
-    content: 'Loading...',
+  const titleBox = grid.set(0, 0, 2, 6, blessed.box, {
+    label: ' Info ',
+    content: '{center}{bold}Something CLI{/bold}\nInitializing...{/center}',
     tags: true,
-    border: { type: 'line', fg: 'cyan' },
-    style: { fg: 'white' },
+    style: { fg: 'cyan', border: { fg: 'cyan' } },
+    border: { type: 'line' },
   }) as blessed.Widgets.BoxElement;
 
-  const logBox = grid.set(6, 0, 6, 12, contrib.log, {
-    label: 'Logs',
+  const donut = grid.set(0, 6, 4, 6, contrib.donut, {
+    label: ' Progress ',
+    radius: 8,
+    arcWidth: 3,
+    remainColor: 'black',
+    yPadding: 2,
+    data: [{ percent: 0, label: 'Download', color: 'green' }],
+    border: { type: 'line', fg: 'green' },
+  }) as contrib.Widgets.DonutElement;
+
+  const speedLine = grid.set(2, 0, 4, 6, contrib.line, {
+    style: { line: 'yellow', text: 'green', baseline: 'black' },
+    xLabelPadding: 3,
+    xPadding: 5,
+    showLegend: true,
+    wholeFile: true,
+    label: ' Download Speed (MB/s) ',
+    border: { type: 'line', fg: 'yellow' },
+  }) as contrib.Widgets.LineElement;
+
+  const peersTable = grid.set(4, 6, 4, 6, contrib.table, {
+    keys: true,
+    fg: 'white',
+    selectedFg: 'white',
+    selectedBg: 'blue',
+    interactive: false,
+    label: ' Connected Peers ',
+    width: '30%',
+    height: '30%',
+    border: { type: 'line', fg: 'magenta' },
+    columnSpacing: 3,
+    columnWidth: [20, 15, 10],
+  }) as contrib.Widgets.TableElement;
+
+  const logBox = grid.set(6, 0, 6, 6, contrib.log, {
+    label: ' Activity Log ',
     fg: 'green',
     selectedFg: 'green',
-    height: '100%',
-    border: { type: 'line', fg: 'cyan' },
+    border: { type: 'line', fg: 'green' },
   }) as blessed.Widgets.Log;
 
+  const fileTable = grid.set(8, 6, 4, 6, contrib.table, {
+    keys: true,
+    fg: 'white',
+    selectedFg: 'black',
+    selectedBg: 'cyan',
+    interactive: true,
+    label: ' Files (Press f to focus) ',
+    border: { type: 'line', fg: 'white' },
+    columnSpacing: 2,
+    columnWidth: [40, 10],
+  }) as contrib.Widgets.TableElement;
+
   const client = new WebTorrent();
+  const speedData: { x: string[]; y: number[] } = { x: [], y: [] };
 
   client.add(torrentPath, { path: outputDir }, (torrent: Torrent) => {
     logBox.log(`Downloading: ${torrent.name}`);
 
-    infoBox.setContent(
-      `Torrent: {bold}${torrent.name}{/bold}\nTotal Size: ${(torrent.length / 1024 / 1024).toFixed(2)} MB\nStatus: Downloading...`
+    titleBox.setContent(
+      `{center}{bold}${torrent.name}{/bold}\n` +
+      `Size: ${(torrent.length / 1024 / 1024).toFixed(2)} MB{/center}`
     );
     screen.render();
+
+    const fileList = torrent.files.map((f) => [
+      f.name,
+      (f.length / 1024 / 1024).toFixed(2) + ' MB',
+    ]);
+    fileTable.setData({ headers: ['File', 'Size'], data: fileList });
 
     torrent.files.forEach((file: TorrentFile) => {
       const filePath = path.join(outputDir, file.path);
       const fileDir = path.dirname(filePath);
 
-      // Ensure the directory for the file exists
       if (!fs.existsSync(fileDir)) {
         fs.mkdirSync(fileDir, { recursive: true });
       }
 
       logBox.log(`Saving: ${filePath}`);
 
-      // Create a write stream to save the file
       file.createReadStream().pipe(fs.createWriteStream(filePath));
 
       file.on('done', () => {
         logBox.log(`Finished downloading ${file.name}`);
       });
     });
+    // -------------------------------
 
     torrent.on('download', (bytes: number) => {
-      const progress = torrent.progress * 100;
-      const downloaded = (torrent.downloaded / 1024 / 1024).toFixed(2); // In MB
-      const total = (torrent.length / 1024 / 1024).toFixed(2); // In MB
-      const speed = (torrent.downloadSpeed / 1024 / 1024).toFixed(2); // In MB/s
-      const timeRemaining = (torrent.timeRemaining / 1000 / 60).toFixed(2); // In minutes
+      const progress = Math.round(torrent.progress * 100);
+      const speed = torrent.downloadSpeed / 1024 / 1024;
 
-      infoBox.setContent(
-        `Torrent: {bold}${torrent.name}{/bold}\nTotal Size: ${total} MB\nDownloaded: ${downloaded} MB\nSpeed: ${speed} MB/s\nTime Remaining: ${timeRemaining} min\nStatus: Downloading...`
+      donut.setData([
+        { percent: progress.toString(), label: 'Progress', color: 'green' },
+      ]);
+
+      const now = new Date().toLocaleTimeString();
+      if (speedData.x.length > 20) {
+        speedData.x.shift();
+        speedData.y.shift();
+      }
+      speedData.x.push(now);
+      speedData.y.push(speed);
+
+      speedLine.setData([
+        { title: 'Speed', x: speedData.x, y: speedData.y, style: { line: 'yellow' } }
+      ]);
+
+      const downloaded = (torrent.downloaded / 1024 / 1024).toFixed(2);
+      const total = (torrent.length / 1024 / 1024).toFixed(2);
+      const timeRemaining = (torrent.timeRemaining / 1000 / 60).toFixed(1);
+
+      titleBox.setContent(
+        `{center}{bold}${torrent.name}{/bold}\n` +
+        `{cyan-fg}${downloaded} / ${total} MB{/cyan-fg}\n` +
+        `ETA: ${timeRemaining} min | Peers: ${torrent.numPeers}{/center}`
       );
+
+      // Update Peers
+      const peers = (torrent as any).wires.map((wire: any) => [
+        wire.remoteAddress || 'Unknown',
+        wire.type || 'TCP',
+        (wire.downloaded / 1024).toFixed(0) + ' KB',
+      ]);
+      peersTable.setData({ headers: ['IP', 'Type', 'Down'], data: peers.slice(0, 10) });
+
       screen.render();
-
-      logBox.log(
-        `Progress: ${progress.toFixed(2)}%, Downloaded: ${downloaded}MB/${total}MB, Speed: ${speed}MB/s, Time Remaining: ${timeRemaining} min`
-      );
     });
 
     torrent.on('done', () => {
-      infoBox.setContent(
-        `Torrent: {bold}${torrent.name}{/bold}\nTotal Size: ${(torrent.length / 1024 / 1024).toFixed(2)} MB\nStatus: Download Complete!`
-      );
+      donut.setData([{ percent: '100', label: 'Done', color: 'blue' }]);
+      logBox.log('Download Complete!');
       screen.render();
-      logBox.log('All files downloaded');
-      client.destroy(); // Close the client when done
+      client.destroy();
     });
 
-    // Using type assertion to avoid type error
     (torrent as any).on('error', (err: Error) => {
       logBox.log(`Error: ${err.message}`);
     });
@@ -111,8 +186,12 @@ const startTorrentDownload = (torrentPath: string, outputDir: string) => {
 
   // Handle screen resize
   screen.on('resize', () => {
-    infoBox.emit('resize');
+    titleBox.emit('resize');
+    donut.emit('resize');
+    speedLine.emit('resize');
+    peersTable.emit('resize');
     logBox.emit('resize');
+    fileTable.emit('resize');
     screen.render();
   });
 
@@ -121,8 +200,11 @@ const startTorrentDownload = (torrentPath: string, outputDir: string) => {
     return process.exit(0);
   });
 
+  screen.key(['f'], () => {
+    fileTable.focus();
+  });
+
   screen.render();
 };
 
-// Start the torrent download with user-provided arguments
 startTorrentDownload(options.torrent, options.output);
