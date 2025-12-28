@@ -22,7 +22,7 @@ const startTorrentDownload = (torrentPath: string, outputDir: string) => {
 
   const screen = blessed.screen({
     smartCSR: true,
-    title: 'Something CLI - Next Level Torrenting',
+    title: 'Something CLI',
   });
 
   const grid = new contrib.grid({ rows: 12, cols: 12, screen: screen });
@@ -154,7 +154,6 @@ const startTorrentDownload = (torrentPath: string, outputDir: string) => {
         `ETA: ${timeRemaining} min | Peers: ${torrent.numPeers}{/center}`
       );
 
-      // Update Peers
       const peers = (torrent as any).wires.map((wire: any) => [
         wire.remoteAddress || 'Unknown',
         wire.type || 'TCP',
@@ -179,12 +178,10 @@ const startTorrentDownload = (torrentPath: string, outputDir: string) => {
     screen.render();
   });
 
-  // Listen for errors on the client as well
   client.on('error', (err: string | Error) => {
     logBox.log(`Client Error: ${err.toString()}`);
   });
 
-  // Handle screen resize
   screen.on('resize', () => {
     titleBox.emit('resize');
     donut.emit('resize');
@@ -195,7 +192,6 @@ const startTorrentDownload = (torrentPath: string, outputDir: string) => {
     screen.render();
   });
 
-  // Quit on Escape, q, or Control-C.
   screen.key(['escape', 'q', 'C-c'], () => {
     return process.exit(0);
   });
